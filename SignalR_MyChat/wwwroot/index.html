@@ -1,0 +1,190 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title></title>
+</head>
+<body>
+    <h2>Чат</h2>
+    <div class="main">
+        <div id="loginBlock">
+            Введите логин:<br />
+            <input id="txtUserName" type="text" class="form-control" />
+            <input id="btnLogin" type="button" value="Войти" class="btn btn-default" />
+        </div>
+        <div id="chatBody">
+            <div id="header"></div>
+            <div id="inputForm">
+                <input type="text" id="message" class="form-control" />
+                <input type="button" id="sendmessage" value="Отправить" class="btn btn-default" />
+            </div>
+            <div id="chatroom"></div>
+
+            <div>
+                <p><b>Все пользователи:</b></p>
+                <ul id="chatusers"></ul>
+            </div>
+        </div>
+        <input id="hdId" type="hidden" />
+        <input id="username" type="hidden" />
+    </div>
+
+
+
+
+
+
+
+
+    <!--{чтобы на клиентской стоое работала библиотека SignalR подключает скрипт : }-->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js" integrity="sha256-oP6HI9z1XaZNBrJURtCoUT5SUnxFr8s3BzRl+cbzUq8=" crossorigin="anonymous"></script>
+
+
+    <script>
+
+        /**$(function) - аналог $documentReady()*/
+        $(function () {
+            /**для взаимодействия с хабом мойЧат с помо        щью метода build() созда *
+ется
+объект HubConenction - обьект подключения.
+Метод withUrl устанавливает адрес, по которому приложение будет обращаться к хабу.
+Поскольку чатХаб на сервере сопоставляется с адресом "/chat" то именно етот адрес передается в виндоус.*/
+
+
+
+            /**Если адес сервера и адрес клиента не будут совпадать ( сейчас совпадают потому что клиент и сервер работают в одном приложе        нии)
+            то нужно будет настроить CORS*/
+            $('#chatBody').hide();
+            $('#loginBlock').show();
+            const hubConnection = new signalR.HubConnectionBuilder()        //cоздаем прокси хаба на клиентской стороне, настраиваем url
+                .withUrl("/chat")
+                .build();
+
+
+            //Этот метод устанавливает функцию на стороне клиента , которая будет получать данные от сервера ( хаба)
+            //для того , чтобы сервер мог вызывать ети функции ( addmessage , connect, disconnect  и т.д.) любой клиент должен ети функции зарегистрировать.
+            //после етой регистрации сервер на стороне клиента может візівать функцию addmessage и передавать туда имя и сообщение.
+            hubConnection.on("AddMessage", function (name, message) {
+                //добавление сообщений на страницу
+                $('#chatroom').append('<p><b>' + htmlEncode(name)
+                    + '</b> : <i>' + htmlEncode(message) + '</i></p>');
+            });
+
+
+            //вызывается только у одного юзера, которому нужно знать кто есть в чате.
+            hubConnection.on("Connected", function (id, userName, allUsers) {
+                $('#loginBlock').hide();
+                $('#chatBody').show();
+                //установк в скрытых полях айди и имени текущего юзера
+                $('#hdId').val(id);
+                $('#username').val(userName);
+                $('#header').html('<h3>Привет , ' + userName + '</h3>');
+
+
+                for (i = 0; i < allUsers.length; i++) {
+                    AddUser(allUsers[i].connectionId, allUsers[i].name);
+                }
+
+
+            });
+            //сервер вызывает у всех, кроме того кто зашел
+            hubConnection.on("NewUserConnected", function (id, name) {
+                AddUser(id, name);   // один раз вызовется у клиентов и будет добавлен нвоый юзер в список.
+            });
+
+
+            hubConnection.on("UserDisconnected", function (id, name) {
+                $('#' + id).remove();
+            });
+
+
+            hubConnection.on("History", function (MessageCollection) {
+                console.log(MessageCollection);
+                MessageCollection.map((Message) => {
+                    $('#chatroom').append('<p><b>' + htmlEncode(Message.username)
+                        + '</b> : <i>' + htmlEncode(Message.messag) + '</i></p>');
+                });
+            });
+
+
+           
+
+
+
+
+
+            //открывается соединение с сервером.
+            //если подключение с хабом успешно установлено - сработает then
+            //если ошибка- сработает кэтч
+
+            hubConnection.start()
+                .then(function () {
+                    $('#sendmessage').click(function () {       //вешаем обработчик клика на кнопку отправить сообщение
+                        hubConnection.invoke("Send", $('#username').val(), $('#message').val())  //клиент обращается к серверу(метод_сервера, имя, сообщение)
+                            .catch(function (err) {
+                                return console.error(err.toString());
+                            });
+                        $('#message').val('');
+                    });
+
+
+                    $('#btnLogin').click(function () {
+                        let name = $('#txtUserName').val();
+                        if (name.length > 0) {
+                            hubConnection.invoke("Connect", name)
+                                .catch(function (err) {
+                                    return console.error(err.toString());
+                                });
+                        }
+                        else {
+                            alert("Введите имя");
+                        }
+                    });
+                })
+                .catch(function (err) {
+                    return console.error(err.toString());
+                });
+
+
+
+
+
+
+        });
+
+
+
+
+
+        //функция для обработки возможных вредоносных вещей. Поэтому закидываем ето в див.
+        //text - аналог innerText - она не понимает теги, если будет какая-то срань - то мы защищаем наш код
+        function htmlEncode(value) {
+
+            let encodedValue = $('<div/>').text(value).html();
+            return encodedValue;
+        }
+
+
+        //Добавление нового юзера :
+        function AddUser(id, name) {
+            let userId = $('#hdId').val();
+            //чтоб  в список юзеров не попадал свой айди
+            if (name !== undefined && userId !== id) {
+                $('#chatusers').append('<li id="' + id + '"><b>' + name + '</b></li>');
+            }
+        }
+
+
+
+
+    </script>
+
+
+
+
+
+
+
+</body>
+</html>
